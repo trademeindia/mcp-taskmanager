@@ -68,8 +68,31 @@ const ApproveRequestCompletionSchema = z.object({
   requestId: z.string(),
 });
 
-const GetStatusSchema = z.object({});
 const OpenTaskDetailsSchema = z.object({
+  taskId: z.string(),
+});
+
+const ListRequestsSchema = z.object({});
+
+const AddTasksToRequestSchema = z.object({
+  requestId: z.string(),
+  tasks: z.array(
+    z.object({
+      title: z.string(),
+      description: z.string(),
+    })
+  ),
+});
+
+const UpdateTaskSchema = z.object({
+  requestId: z.string(),
+  taskId: z.string(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const DeleteTaskSchema = z.object({
+  requestId: z.string(),
   taskId: z.string(),
 });
 
@@ -81,9 +104,9 @@ const REQUEST_PLANNING_TOOL: Tool = {
     "Register a new user request and plan its associated tasks. You must provide 'originalRequest' and 'tasks', and optionally 'splitDetails'.\n\n" +
     "This tool initiates a new workflow for handling a user's request. The workflow is as follows:\n" +
     "1. Use 'request_planning' to register a request and its tasks.\n" +
-    "2. Use 'get_next_task' to retrieve the next uncompleted task.\n" +
-    "3. 'Mark task done' (using 'mark_task_done') once the assistant considers the task executed.\n" +
-    "4. **IMPORTANT:** After marking a task as done, the assistant MUST NOT proceed to another task without the user's approval. The user must explicitly approve the completed task using 'approve_task_completion'. Without this approval, you should not call 'get_next_task' to move on.\n" +
+    "2. After adding tasks, you MUST use 'get_next_task' to retrieve the first task. A progress table will be displayed.\n" +
+    "3. Use 'get_next_task' to retrieve the next uncompleted task.\n" +
+    "4. **IMPORTANT:** After marking a task as done, the assistant MUST NOT proceed to another task without the user's approval. The user must explicitly approve the completed task using 'approve_task_completion'. A progress table will be displayed before each approval request.\n" +
     "5. Once a task is approved, you can proceed to 'get_next_task' again to fetch the next pending task.\n" +
     "6. Repeat this cycle until all tasks are done.\n" +
     "7. After all tasks are completed (and approved), 'get_next_task' will indicate that all tasks are done and that the request awaits approval for full completion.\n" +
@@ -114,6 +137,7 @@ const GET_NEXT_TASK_TOOL: Tool = {
   name: "get_next_task",
   description:
     "Given a 'requestId', return the next pending task (not done yet). If all tasks are completed, it will indicate that no more tasks are left and that you must wait for the request completion approval.\n\n" +
+    "A progress table showing the current status of all tasks will be displayed with each response.\n\n" +
     "If the same task is returned again or if no new task is provided after a task was marked as done but not yet approved, you MUST NOT proceed. In such a scenario, you must prompt the user for approval via 'approve_task_completion' before calling 'get_next_task' again. Do not skip the user's approval step.\n" +
     "In other words:\n" +
     "- After calling 'mark_task_done', do not call 'get_next_task' again until 'approve_task_completion' is called by the user.\n" +
@@ -131,6 +155,7 @@ const MARK_TASK_DONE_TOOL: Tool = {
   name: "mark_task_done",
   description:
     "Mark a given task as done after you've completed it. Provide 'requestId' and 'taskId', and optionally 'completedDetails'.\n\n" +
+    "After marking a task as done, a progress table will be displayed showing the updated status of all tasks.\n\n" +
     "After this, DO NOT proceed to 'get_next_task' again until the user has explicitly approved this completed task using 'approve_task_completion'.",
   inputSchema: {
     type: "object",
@@ -147,6 +172,7 @@ const APPROVE_TASK_COMPLETION_TOOL: Tool = {
   name: "approve_task_completion",
   description:
     "Once the assistant has marked a task as done using 'mark_task_done', the user must call this tool to approve that the task is genuinely completed. Only after this approval can you proceed to 'get_next_task' to move on.\n\n" +
+    "A progress table will be displayed before requesting approval, showing the current status of all tasks.\n\n" +
     "If the user does not approve, do not call 'get_next_task'. Instead, the user may request changes, or even re-plan tasks by using 'request_planning' again.",
   inputSchema: {
     type: "object",
@@ -161,23 +187,15 @@ const APPROVE_TASK_COMPLETION_TOOL: Tool = {
 const APPROVE_REQUEST_COMPLETION_TOOL: Tool = {
   name: "approve_request_completion",
   description:
-    "After all tasks are done and approved, this tool finalizes the entire request. The user must call this to confirm that the request is fully completed. If not approved, the user can add new tasks using 'request_planning' and continue the process.",
+    "After all tasks are done and approved, this tool finalizes the entire request. The user must call this to confirm that the request is fully completed.\n\n" +
+    "A progress table showing the final status of all tasks will be displayed before requesting final approval.\n\n" +
+    "If not approved, the user can add new tasks using 'request_planning' and continue the process.",
   inputSchema: {
     type: "object",
     properties: {
       requestId: { type: "string" },
     },
     required: ["requestId"],
-  },
-};
-
-const GET_STATUS_TOOL: Tool = {
-  name: "get_status",
-  description:
-    "Retrieve the full status of all requests and tasks. Useful for debugging or checking the entire state at once.",
-  inputSchema: {
-    type: "object",
-    properties: {},
   },
 };
 
@@ -191,6 +209,73 @@ const OPEN_TASK_DETAILS_TOOL: Tool = {
       taskId: { type: "string" },
     },
     required: ["taskId"],
+  },
+};
+
+const LIST_REQUESTS_TOOL: Tool = {
+  name: "list_requests",
+  description:
+    "List all requests with their basic information and summary of tasks. This provides a quick overview of all requests in the system.",
+  inputSchema: {
+    type: "object",
+    properties: {},
+  },
+};
+
+const ADD_TASKS_TO_REQUEST_TOOL: Tool = {
+  name: "add_tasks_to_request",
+  description:
+    "Add new tasks to an existing request. This allows extending a request with additional tasks.\n\n" +
+    "A progress table will be displayed showing all tasks including the newly added ones.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      requestId: { type: "string" },
+      tasks: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+          },
+          required: ["title", "description"],
+        },
+      },
+    },
+    required: ["requestId", "tasks"],
+  },
+};
+
+const UPDATE_TASK_TOOL: Tool = {
+  name: "update_task",
+  description:
+    "Update an existing task's title and/or description. Only uncompleted tasks can be updated.\n\n" +
+    "A progress table will be displayed showing the updated task information.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      requestId: { type: "string" },
+      taskId: { type: "string" },
+      title: { type: "string" },
+      description: { type: "string" },
+    },
+    required: ["requestId", "taskId"],
+  },
+};
+
+const DELETE_TASK_TOOL: Tool = {
+  name: "delete_task",
+  description:
+    "Delete a specific task from a request. Only uncompleted tasks can be deleted.\n\n" +
+    "A progress table will be displayed showing the remaining tasks after deletion.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      requestId: { type: "string" },
+      taskId: { type: "string" },
+    },
+    required: ["requestId", "taskId"],
   },
 };
 
@@ -247,6 +332,40 @@ class TaskManagerServer {
     }
   }
 
+  private formatTaskProgressTable(requestId: string): string {
+    const req = this.data.requests.find((r) => r.requestId === requestId);
+    if (!req) return "Request not found";
+
+    let table = "\nProgress Status:\n";
+    table += "| Task ID | Title | Description | Status | Approval |\n";
+    table += "|----------|----------|------|------|----------|\n";
+
+    for (const task of req.tasks) {
+      const status = task.done ? "✅ Done" : "🔄 In Progress";
+      const approved = task.approved ? "✅ Approved" : "⏳ Pending";
+      table += `| ${task.id} | ${task.title} | ${task.description} | ${status} | ${approved} |\n`;
+    }
+
+    return table;
+  }
+
+  private formatRequestsList(): string {
+    let output = "\nRequests List:\n";
+    output +=
+      "| Request ID | Original Request | Total Tasks | Completed | Approved |\n";
+    output +=
+      "|------------|------------------|-------------|-----------|----------|\n";
+
+    for (const req of this.data.requests) {
+      const totalTasks = req.tasks.length;
+      const completedTasks = req.tasks.filter((t) => t.done).length;
+      const approvedTasks = req.tasks.filter((t) => t.approved).length;
+      output += `| ${req.requestId} | ${req.originalRequest.substring(0, 30)}${req.originalRequest.length > 30 ? "..." : ""} | ${totalTasks} | ${completedTasks} | ${approvedTasks} |\n`;
+    }
+
+    return output;
+  }
+
   public async requestPlanning(
     originalRequest: string,
     tasks: { title: string; description: string }[],
@@ -279,6 +398,8 @@ class TaskManagerServer {
 
     await this.saveTasks();
 
+    const progressTable = this.formatTaskProgressTable(requestId);
+
     return {
       status: "planned",
       requestId,
@@ -288,6 +409,7 @@ class TaskManagerServer {
         title: t.title,
         description: t.description,
       })),
+      message: `Tasks have been successfully added. Please use 'get_next_task' to retrieve the first task.\n${progressTable}`,
     };
   }
 
@@ -308,15 +430,16 @@ class TaskManagerServer {
       // all tasks done?
       const allDone = req.tasks.every((t) => t.done);
       if (allDone && !req.completed) {
+        const progressTable = this.formatTaskProgressTable(requestId);
         return {
           status: "all_tasks_done",
-          message:
-            "All tasks have been done. Awaiting request completion approval.",
+          message: `All tasks have been completed. Awaiting request completion approval.\n${progressTable}`,
         };
       }
       return { status: "no_next_task", message: "No undone tasks found." };
     }
 
+    const progressTable = this.formatTaskProgressTable(requestId);
     return {
       status: "next_task",
       task: {
@@ -324,6 +447,7 @@ class TaskManagerServer {
         title: nextTask.title,
         description: nextTask.description,
       },
+      message: `Next task is ready. Task approval will be required after completion.\n${progressTable}`,
     };
   }
 
@@ -408,29 +532,6 @@ class TaskManagerServer {
     };
   }
 
-  public async getStatus() {
-    await this.loadTasks();
-    const requestsSummary = this.data.requests.map((req) => ({
-      requestId: req.requestId,
-      originalRequest: req.originalRequest,
-      splitDetails: req.splitDetails,
-      completed: req.completed,
-      tasks: req.tasks.map((t) => ({
-        id: t.id,
-        title: t.title,
-        description: t.description,
-        done: t.done,
-        approved: t.approved,
-        completedDetails: t.completedDetails,
-      })),
-    }));
-    return {
-      status: "current_status",
-      totalRequests: this.data.requests.length,
-      requests: requestsSummary,
-    };
-  }
-
   public async openTaskDetails(taskId: string) {
     await this.loadTasks();
     for (const req of this.data.requests) {
@@ -455,6 +556,114 @@ class TaskManagerServer {
     }
     return { status: "task_not_found", message: "No such task found" };
   }
+
+  public async listRequests() {
+    await this.loadTasks();
+    const requestsList = this.formatRequestsList();
+    return {
+      status: "requests_listed",
+      message: `Current requests in the system:\n${requestsList}`,
+      requests: this.data.requests.map((req) => ({
+        requestId: req.requestId,
+        originalRequest: req.originalRequest,
+        totalTasks: req.tasks.length,
+        completedTasks: req.tasks.filter((t) => t.done).length,
+        approvedTasks: req.tasks.filter((t) => t.approved).length,
+      })),
+    };
+  }
+
+  public async addTasksToRequest(
+    requestId: string,
+    tasks: { title: string; description: string }[]
+  ) {
+    await this.loadTasks();
+    const req = this.data.requests.find((r) => r.requestId === requestId);
+    if (!req) return { status: "error", message: "Request not found" };
+    if (req.completed)
+      return {
+        status: "error",
+        message: "Cannot add tasks to completed request",
+      };
+
+    const newTasks: Task[] = [];
+    for (const taskDef of tasks) {
+      this.taskCounter += 1;
+      newTasks.push({
+        id: `task-${this.taskCounter}`,
+        title: taskDef.title,
+        description: taskDef.description,
+        done: false,
+        approved: false,
+        completedDetails: "",
+      });
+    }
+
+    req.tasks.push(...newTasks);
+    await this.saveTasks();
+
+    const progressTable = this.formatTaskProgressTable(requestId);
+    return {
+      status: "tasks_added",
+      message: `Added ${newTasks.length} new tasks to request.\n${progressTable}`,
+      newTasks: newTasks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+      })),
+    };
+  }
+
+  public async updateTask(
+    requestId: string,
+    taskId: string,
+    updates: { title?: string; description?: string }
+  ) {
+    await this.loadTasks();
+    const req = this.data.requests.find((r) => r.requestId === requestId);
+    if (!req) return { status: "error", message: "Request not found" };
+
+    const task = req.tasks.find((t) => t.id === taskId);
+    if (!task) return { status: "error", message: "Task not found" };
+    if (task.done)
+      return { status: "error", message: "Cannot update completed task" };
+
+    if (updates.title) task.title = updates.title;
+    if (updates.description) task.description = updates.description;
+
+    await this.saveTasks();
+
+    const progressTable = this.formatTaskProgressTable(requestId);
+    return {
+      status: "task_updated",
+      message: `Task ${taskId} has been updated.\n${progressTable}`,
+      task: {
+        id: task.id,
+        title: task.title,
+        description: task.description,
+      },
+    };
+  }
+
+  public async deleteTask(requestId: string, taskId: string) {
+    await this.loadTasks();
+    const req = this.data.requests.find((r) => r.requestId === requestId);
+    if (!req) return { status: "error", message: "Request not found" };
+
+    const taskIndex = req.tasks.findIndex((t) => t.id === taskId);
+    if (taskIndex === -1) return { status: "error", message: "Task not found" };
+    if (req.tasks[taskIndex].done)
+      return { status: "error", message: "Cannot delete completed task" };
+
+    req.tasks.splice(taskIndex, 1);
+    await this.saveTasks();
+
+    const progressTable = this.formatTaskProgressTable(requestId);
+    return {
+      status: "task_deleted",
+      message: `Task ${taskId} has been deleted.\n${progressTable}`,
+    };
+  }
 }
 
 const server = new Server(
@@ -478,8 +687,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     MARK_TASK_DONE_TOOL,
     APPROVE_TASK_COMPLETION_TOOL,
     APPROVE_REQUEST_COMPLETION_TOOL,
-    GET_STATUS_TOOL,
     OPEN_TASK_DETAILS_TOOL,
+    LIST_REQUESTS_TOOL,
+    ADD_TASKS_TO_REQUEST_TOOL,
+    UPDATE_TASK_TOOL,
+    DELETE_TASK_TOOL,
   ],
 }));
 
@@ -561,17 +773,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "get_status": {
-        const parsed = GetStatusSchema.safeParse(args);
-        if (!parsed.success) {
-          throw new Error(`Invalid arguments: ${parsed.error}`);
-        }
-        const result = await taskManagerServer.getStatus();
-        return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        };
-      }
-
       case "open_task_details": {
         const parsed = OpenTaskDetailsSchema.safeParse(args);
         if (!parsed.success) {
@@ -579,6 +780,59 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const { taskId } = parsed.data;
         const result = await taskManagerServer.openTaskDetails(taskId);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "list_requests": {
+        const parsed = ListRequestsSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments: ${parsed.error}`);
+        }
+        const result = await taskManagerServer.listRequests();
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "add_tasks_to_request": {
+        const parsed = AddTasksToRequestSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments: ${parsed.error}`);
+        }
+        const { requestId, tasks } = parsed.data;
+        const result = await taskManagerServer.addTasksToRequest(
+          requestId,
+          tasks
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "update_task": {
+        const parsed = UpdateTaskSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments: ${parsed.error}`);
+        }
+        const { requestId, taskId, title, description } = parsed.data;
+        const result = await taskManagerServer.updateTask(requestId, taskId, {
+          title,
+          description,
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "delete_task": {
+        const parsed = DeleteTaskSchema.safeParse(args);
+        if (!parsed.success) {
+          throw new Error(`Invalid arguments: ${parsed.error}`);
+        }
+        const { requestId, taskId } = parsed.data;
+        const result = await taskManagerServer.deleteTask(requestId, taskId);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
