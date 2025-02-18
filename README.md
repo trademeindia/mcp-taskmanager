@@ -2,77 +2,75 @@
 
 Model Context Protocol server for Task Management. This allows Claude Desktop (or any MCP client) to manage and execute tasks in a queue-based system.
 
-## Quick Start (For Users)
+## Prerequisites
 
-### Prerequisites
 - Node.js 18+ (install via `brew install node`)
 - Claude Desktop (install from https://claude.ai/desktop)
+- tsx (install via `npm install -g tsx`)
 
-### Configuration
+## Installation
 
-1. Open your Claude Desktop configuration file at:
-`~/Library/Application Support/Claude/claude_desktop_config.json`
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/pashpashpash/mcp-taskmanager.git
+   cd mcp-taskmanager
+   ```
 
-You can find this through the Claude Desktop menu:
+2. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Build the Project**:
+   ```bash
+   npm run build
+   ```
+
+4. **Configure Claude Desktop**:
+
+Locate your Claude Desktop configuration file at:
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%/Claude/claude_desktop_config.json`
+
+You can also find this through the Claude Desktop menu:
 1. Open Claude Desktop
 2. Click Claude on the Mac menu bar
 3. Click "Settings"
 4. Click "Developer"
 
-2. Add the following to your configuration:
-
+Add the following to your configuration:
 ```json
 {
   "tools": {
     "taskmanager": {
-      "command": "npx",
-      "args": ["-y", "@kazuph/mcp-taskmanager"]
+      "command": "node",
+      "args": ["path/to/mcp-taskmanager/dist/index.js"]
     }
   }
 }
 ```
+Note: Replace "path/to/mcp-taskmanager" with the actual path to your cloned repository.
 
-## For Developers
+## Development Setup
 
-### Prerequisites
-- Node.js 18+ (install via `brew install node`)
-- Claude Desktop (install from https://claude.ai/desktop)
-- tsx (install via `npm install -g tsx`)
+1. **Install tsx globally** (if not already installed):
+   ```bash
+   npm install -g tsx
+   ```
 
-### Installation
-
-```bash
-git clone https://github.com/kazuph/mcp-taskmanager.git
-cd mcp-taskmanager
-npm install
-npm run build
-```
-
-### Development Configuration
-
-1. Make sure Claude Desktop is installed and running.
-
-2. Install tsx globally if you haven't:
-```bash
-npm install -g tsx
-# or
-pnpm add -g tsx
-```
-
-3. Modify your Claude Desktop config located at:
-`~/Library/Application Support/Claude/claude_desktop_config.json`
-
-Add the following to your MCP client's configuration:
-
-```json
-{
-  "tools": {
-    "taskmanager": {
-      "args": ["tsx", "/path/to/mcp-taskmanager/index.ts"]
-    }
-  }
-}
-```
+2. **Development Configuration**:
+   
+   For development with the TypeScript source, modify your Claude Desktop config:
+   ```json
+   {
+     "tools": {
+       "taskmanager": {
+         "command": "tsx",
+         "args": ["path/to/mcp-taskmanager/index.ts"]
+       }
+     }
+   }
+   ```
 
 ## Available Operations
 
@@ -90,7 +88,6 @@ The TaskManager supports two main phases of operation:
 - Prepares the next task for execution
 
 ### Parameters
-
 - `action`: "plan" | "execute" | "complete"
 - `tasks`: Array of task strings (required for "plan" action)
 - `taskId`: Task identifier (required for "complete" action)
@@ -117,3 +114,30 @@ The TaskManager supports two main phases of operation:
   taskId: "task-123"
 }
 ```
+
+## Debugging
+
+If you run into issues, check Claude Desktop's MCP logs:
+```bash
+tail -n 20 -f ~/Library/Logs/Claude/mcp*.log
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Build the project
+npm run build
+
+# Development with auto-rebuild
+npm run watch
+```
+
+## License
+
+MIT
+
+---
+Note: This is a fork of the [original mcp-taskmanager repository](https://github.com/kazuph/mcp-taskmanager).
